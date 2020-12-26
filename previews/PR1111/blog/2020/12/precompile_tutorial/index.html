@@ -120,7 +120,13 @@ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-bu
 julia&gt; print_tree(mis[<span class=hljs-number >3</span>])
 MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
 └─ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})
-   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})</code></pre> <p>So now both concretely-inferred versions of <code>double</code> link all the way back to <code>calldouble2</code>, but only when the element type of the container is also concrete.</p> <h2 id=precompilation ><a href="#precompilation">Precompilation</a></h2> <p>During <em>package precompilation</em>, Julia creates a <code>*.ji</code> file typically stored in <code>.julia/compiled/v1.x/</code>, where <code>1.x</code> is your version of Julia. Your <code>*.ji</code> file might just have definitions of constants, types, and methods, but optionally you can also include the results of type-inference. This happens automatically if you run code while your package is being built, but generally the recommended procedure is to add <em>precompile directives</em>.</p> <p>Let&#39;s turn the example above into a package. In a fresh session,</p> <pre><code class="julia hljs">(<span class=hljs-meta >@v1</span><span class=hljs-number >.6</span>) pkg&gt; generate SnoopCompileDemo
+   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})</code></pre> <p>So now both concretely-inferred versions of <code>double</code> link all the way back to <code>calldouble2</code>, but only when the element type of the container is also concrete.</p> <h3 id=exercise_for_the_reader ><a href="#exercise_for_the_reader">Exercise for the reader</a></h3> <p>Does Julia ever compile methods, and introduce backedges, for abstract types? Start a fresh session, and instead of using the definitions above define <code>double</code> using <code>@nospecialize</code>:</p> <pre><code class="julia hljs">double(<span class=hljs-meta >@nospecialize</span>(x::<span class=hljs-built_in >Real</span>)) = <span class=hljs-number >2</span>x</code></pre>
+<p>Now compare what kind of backedges you get with <code>c64</code> and <code>cabs</code>.</p>
+<p>It may be most informative to quit your session and start fresh between trying these two different container types.  You&#39;ll see that Julia is quite the opportunist when it comes to specialization&#33;</p>
+<h2 id=precompilation ><a href="#precompilation">Precompilation</a></h2>
+<p>During <em>package precompilation</em>, Julia creates a <code>*.ji</code> file typically stored in <code>.julia/compiled/v1.x/</code>, where <code>1.x</code> is your version of Julia. Your <code>*.ji</code> file might just have definitions of constants, types, and methods, but optionally you can also include the results of type-inference. This happens automatically if you run code while your package is being built, but generally the recommended procedure is to add <em>precompile directives</em>.</p>
+<p>Let&#39;s turn the example above into a package. In a fresh session,</p>
+<pre><code class="julia hljs">(<span class=hljs-meta >@v1</span><span class=hljs-number >.6</span>) pkg&gt; generate SnoopCompileDemo
   Generating  project SnoopCompileDemo:
     SnoopCompileDemo/Project.toml
     SnoopCompileDemo/src/SnoopCompileDemo.jl
@@ -140,7 +146,10 @@ julia&gt; open(<span class=hljs-string >&quot;SnoopCompileDemo/src/SnoopCompileD
            end
            &quot;&quot;&quot;</span>)
        <span class=hljs-keyword >end</span>
-<span class=hljs-number >282</span></code></pre> <p>You can see we created a package, defined those three methods, and added three <code>precompile</code> directives, all for the top-level <code>calldouble2</code>. We did <em>not</em> add any explicit <code>precompile</code> directives for its callees <code>calldouble</code>, <code>double</code>, or anything needed by <code>double</code> &#40;like <code>*</code> to implement <code>2*x</code>&#41;.</p> <p>Now let&#39;s load this package and see if we have any <code>MethodInstance</code>s:</p> <pre><code class="julia hljs">julia&gt; push!(<span class=hljs-literal >LOAD_PATH</span>, <span class=hljs-string >&quot;SnoopCompileDemo/&quot;</span>)
+<span class=hljs-number >282</span></code></pre>
+<p>You can see we created a package, defined those three methods, and added three <code>precompile</code> directives, all for the top-level <code>calldouble2</code>. We did <em>not</em> add any explicit <code>precompile</code> directives for its callees <code>calldouble</code>, <code>double</code>, or anything needed by <code>double</code> &#40;like <code>*</code> to implement <code>2*x</code>&#41;.</p>
+<p>Now let&#39;s load this package and see if we have any <code>MethodInstance</code>s:</p>
+<pre><code class="julia hljs">julia&gt; push!(<span class=hljs-literal >LOAD_PATH</span>, <span class=hljs-string >&quot;SnoopCompileDemo/&quot;</span>)
 <span class=hljs-number >4</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >String</span>}:
  <span class=hljs-string >&quot;@&quot;</span>
  <span class=hljs-string >&quot;@v#.#&quot;</span>
@@ -156,25 +165,41 @@ julia&gt; methodinstances(SnoopCompileDemo.double)
 <span class=hljs-number >3</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
  MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
  MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
- MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)</code></pre> <p>You can also verify that the same backedges get created as when we ran this code interactively above.</p> <p>By &quot;pre-loading&quot; these <code>MethodInstance</code>s into our session, we can save some of the time needed to run type-inference: not much time in this case because the code is so simple, but for more complex methods the savings can be substantial.</p> <p>This code got cached in <code>SnoopCompileDemo.ji</code>. It&#39;s worth noting that even though the <code>precompile</code> directive got issued from this package, it might save <code>MethodInstances</code> for methods defined in other packages. For example, Julia does not come pre-built with the inferred code for <code>::Int * ::Float32</code>: in a fresh session,</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> MethodAnalysis
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)</code></pre>
+<p>You can also verify that the same backedges get created as when we ran this code interactively above.</p>
+<p>By &quot;pre-loading&quot; these <code>MethodInstance</code>s into our session, we can save some of the time needed to run type-inference: not much time in this case because the code is so simple, but for more complex methods the savings can be substantial.</p>
+<p>This code got cached in <code>SnoopCompileDemo.ji</code>. It&#39;s worth noting that even though the <code>precompile</code> directive got issued from this package, it might save <code>MethodInstances</code> for methods defined in other packages. For example, Julia does not come pre-built with the inferred code for <code>::Int * ::Float32</code>: in a fresh session,</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> MethodAnalysis
 
-julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))</code></pre> <p>returns <code>nothing</code> &#40;the <code>MethodInstance</code> doesn&#39;t exist&#41;, whereas if we&#39;ve loaded <code>SnoopCompileDemo</code> then</p> <pre><code class="julia hljs">julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))
+julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))</code></pre>
+<p>returns <code>nothing</code> &#40;the <code>MethodInstance</code> doesn&#39;t exist&#41;, whereas if we&#39;ve loaded <code>SnoopCompileDemo</code> then</p>
+<pre><code class="julia hljs">julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))
 MethodInstance <span class=hljs-keyword >for</span> *(::<span class=hljs-built_in >Int64</span>, ::<span class=hljs-built_in >Float32</span>)
 
 julia&gt; mi.def
-*(x::<span class=hljs-built_in >Number</span>, y::<span class=hljs-built_in >Number</span>) <span class=hljs-keyword >in</span> Base at promotion.jl:<span class=hljs-number >322</span></code></pre> <p>So even though the method is defined in <code>Base</code>, because <code>SnoopCompileDemo</code> needed this code it got stashed in <code>SnoopCompileDemo.ji</code>.</p> <p>This is fantastic, but there are <em>significant limitations</em> to this ability to stash <code>MethodInstance</code>s from other modules. Most crucially, <code>*.ji</code> files can only hold code they &quot;own,&quot; either:</p> <ul> <li><p>for a method defined in the package</p> <li><p>through a chain of backedges to methods defined by the package</p> </ul> <p>If we add</p> <pre><code class="julia hljs">precompile(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float16</span>))</code></pre>
-<p>to the definition of <code>SnoopCompileDemo.jl</code>, nothing happens:</p>
+*(x::<span class=hljs-built_in >Number</span>, y::<span class=hljs-built_in >Number</span>) <span class=hljs-keyword >in</span> Base at promotion.jl:<span class=hljs-number >322</span></code></pre>
+<p>So even though the method is defined in <code>Base</code>, because <code>SnoopCompileDemo</code> needed this code it got stashed in <code>SnoopCompileDemo.ji</code>.</p>
+<p>This is fantastic, but there are <em>significant limitations</em> to this ability to stash <code>MethodInstance</code>s from other modules.  Most crucially, <code>*.ji</code> files can only hold code they &quot;own,&quot; either:</p>
+<ul>
+<li><p>for a method defined in the package</p>
+
+<li><p>through a chain of backedges to methods defined by the package</p>
+
+</ul>
+<p>If we add</p>
+<pre><code class="julia hljs">precompile(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float16</span>))</code></pre>
+<p>to the definition of <code>SnoopCompileDemo.jl</code>, start a fresh session, and reload the package, you&#39;ll see it&#39;s completely ineffective:</p>
 <pre><code class="julia hljs">julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float16</span>))
-        <span class=hljs-comment ># nothing</span></code></pre>
-<p>because there is no &quot;chain of ownership&quot; to <code>SnoopCompileDemo</code>. Consequently, we can&#39;t precompile methods defined in other modules in and of themselves; we can only do it if those methods are linked by backedges to this package.</p>
+                                               <span class=hljs-comment ># nothing</span></code></pre>
+<p>This happens because there is no &quot;chain of ownership&quot; to <code>SnoopCompileDemo</code>. Consequently, we can&#39;t precompile methods defined in other modules in and of themselves; we can only do it if those methods are linked by backedges to this package.</p>
 <h3 id=time_for_a_quiz ><a href="#time_for_a_quiz">Time for a quiz&#33;</a></h3>
-<p>Add a type to <code>SnoopCompileDemo</code>:</p>
+<p>Add a new type to <code>SnoopCompileDemo</code>:</p>
 <pre><code class="julia hljs"><span class=hljs-keyword >export</span> SCDType
 <span class=hljs-keyword >struct</span> SCDType <span class=hljs-keyword >end</span></code></pre>
-<p>and then a precompile statement for <code>Base.push&#33;</code>:</p>
+<p>and a precompile directive for <code>Base.push&#33;</code>:</p>
 <pre><code class="julia hljs">precompile(push!, (<span class=hljs-built_in >Vector</span>{SCDType}, SCDType))</code></pre>
 <p>Now load the package and check whether the corresponding <code>MethodInstance</code> exists. If not, can you think of a way to get that <code>MethodInstance</code> added to the <code>*.ji</code> file? &#40;<em>Answer is at the bottom of this post</em>&#41;</p>
-<h3 id=synonyms_and_gotchas_for_precompile ><a href="#synonyms_and_gotchas_for_precompile">Synonyms and gotchas for <code>precompile</code></a></h3>
+<h3 id=synonyms_for_precompile ><a href="#synonyms_for_precompile">Synonyms for <code>precompile</code></a></h3>
 <p><code>precompile</code> can also be passed a complete <code>Tuple</code>-type: <code>precompile&#40;calldouble2, &#40;Vector&#123;AbstractFloat&#125;,&#41;&#41;</code> can alternatively be written</p>
 <pre><code class="julia hljs">precompile(<span class=hljs-built_in >Tuple</span>{typeof(calldouble2), <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>}})</code></pre>
 <p>This form appears frequently if <code>precompile</code> directives are issued by code that inspects <code>MethodInstance</code>s, because this signature is in the <code>specType</code> field of a <code>MethodInstance</code>:</p>
@@ -183,6 +208,7 @@ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-bu
 
 julia&gt; mi.specTypes
 <span class=hljs-built_in >Tuple</span>{typeof(SnoopCompileDemo.double), <span class=hljs-built_in >AbstractFloat</span>}</code></pre>
+<h3 id=gotchas_for_precompile ><a href="#gotchas_for_precompile">Gotchas for <code>precompile</code></a></h3>
 <p>One thing we also haven&#39;t discussed is that when <code>precompile</code> fails, it does so &quot;almost&quot; silently:</p>
 <pre><code class="julia hljs">julia&gt; methods(double)
 <span class=hljs-comment ># 1 method for generic function &quot;double&quot;:</span>
@@ -190,16 +216,16 @@ julia&gt; mi.specTypes
 
 julia&gt; precompile(double, (<span class=hljs-built_in >String</span>,))
 <span class=hljs-literal >false</span></code></pre>
-<p>Even though <code>double</code> can&#39;t be compiled for <code>String</code>, the corresponding <code>precompile</code> doesn&#39;t error, it only returns <code>false</code>.  As a consequence, if you want to monitor the utility of your <code>precompile</code> directives, sometimes it&#39;s useful to preface them with <code>@assert</code> so that you get an error if they &quot;go bad&quot; in some fashion.</p>
+<p>Even though <code>double</code> can&#39;t be compiled for <code>String</code>, the corresponding <code>precompile</code> doesn&#39;t error, it only returns <code>false</code>. If you want to monitor the utility of your <code>precompile</code> directives, sometimes it&#39;s useful to preface them with <code>@assert</code>; all&#39;s well if precompilation succeeds, but if changes to the package mean that the precompile directive has &quot;gone bad,&quot; then you get an error. Hopefully, such errors would be caught before shipping the package to users&#33;</p>
 <h2 id=summary ><a href="#summary">Summary</a></h2>
-<p>In this tutorial, we&#39;ve learned about <code>MethodInstance</code>s, backedges, inference, and precompilation. An important take-home message is that <em>precompilation works better when type inference succeeds.</em> For some packages, time invested in improving inferrability can make your <code>precompile</code> directives work better.</p>
+<p>In this tutorial, we&#39;ve learned about <code>MethodInstance</code>s, backedges, inference, and precompilation. An important take-home message is that <em>precompilation works better when type inference succeeds.</em> For some packages, time invested in improving inferrability can make your <code>precompile</code> directives work better. In future installments, we&#39;ll cover some new tools that make it easier than ever to analyzing inference failures.</p>
 <h3 id=answer_to_quiz ><a href="#answer_to_quiz">Answer to quiz</a></h3>
 <p>Directly precompiling <code>push&#33;&#40;::Vector&#123;SCDType&#125;, ::SCDType&#41;</code> fails, because while your package &quot;owns&quot; <code>SCDType</code>, <em>it does not own the method of <code>push&#33;</code></em>.</p>
 <p>However, if you add a method that calls <code>push&#33;</code> and then precompile it,</p>
 <pre><code class="julia hljs">dopush() = push!(SCDType[], SCDType())
 precompile(dopush, ())</code></pre>
 <p>then the <code>MethodInstance</code> for <code>push&#33;&#40;::Vector&#123;SCDType&#125;, ::SCDType&#41;</code> will be added to the package through the backedge to <code>dopush</code> &#40;which you do own&#41;.</p>
-<p>Generally, it&#39;s not recommended to do this artifically as was done here; in useful cases, this happens organically through the functionality of your package. But, this only works when the call is inferrable.</p>
+<p>This was a pretty artifical example, but in more typical cases this happens organically through the functionality of your package. But, this only works when the call is inferrable.</p>
 
 </div><br><br>
 
