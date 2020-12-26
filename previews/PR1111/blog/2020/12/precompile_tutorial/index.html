@@ -1,0 +1,272 @@
+<!doctype html> <html lang=en > <meta charset=utf-8 > <meta name=viewport  content="width=device-width, initial-scale=1, shrink-to-fit=no"> <meta http-equiv=x-ua-compatible  content="ie=edge"> <meta name=author  content="Jeff Bezanson, Stefan Karpinski, Viral Shah, Alan Edelman, et al."> <meta name=description  content="The official website for the Julia Language. Julia is a language that is fast, dynamic, easy to use, and open source. Click here to learn more."> <meta name=robots  content="max-image-preview:large"> <meta name="twitter:site:id" content=1237720952 > <meta name=google-site-verification  content=9VDSjBtchQj6PQYIVwugTPY7pVCfLYgvkXiRHjc_Bzw  /> <link rel=stylesheet  href="/previews/PR1111/libs/bootstrap/bootstrap.min.css"> <link rel=stylesheet  href="/previews/PR1111/css/app.css"> <link rel=stylesheet  href="/previews/PR1111/css/franklin.css"> <link rel=stylesheet  href="/previews/PR1111/css/fonts.css"> <link href="https://fonts.googleapis.com/css?family=Roboto:400,400i,500,500i,700,700i" rel=stylesheet > <link href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css" rel=stylesheet > <script async defer src="/previews/PR1111/libs/buttons.js"></script> <!-- --> <script type="application/javascript"> var doNotTrack = false; if (!doNotTrack) { window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date; ga('create', 'UA-28835595-1', 'auto'); ga('send', 'pageview'); } </script> <script async src='https://www.google-analytics.com/analytics.js'></script> <link rel=icon  href="/previews/PR1111/assets/infra/julia.ico"> <link rel=stylesheet  href="/previews/PR1111/libs/highlight/github.min.css"> <title>Tutorial on precompilation</title> <style> .container ul li p {margin-bottom: 0;} </style> <style> .main { font-family: Georgia; } .main pre { margin-left: auto; margin-right: auto; } .main { width: 100%; font-size: 100%; } .main code { font-size: 90%; } .main pre code { font-size: 90%; } @media (min-width: 940px) { .main { width: 800px; } .container.blog-title { width: 800px;} } </style> <meta property="og:title" content="Tutorial on precompilation"> <meta property="og:description" content="Tutorial on precompilation"> <meta property="og:image" content="/assets/images/julia-open-graph.png"> <div class="container py-3 py-lg-0"> <nav class="navbar navbar-expand-lg navbar-light bg-light" id=main-menu > <a class=navbar-brand  href="/previews/PR1111/"> <img src="/previews/PR1111/assets/infra/logo.svg" alt="JuliaLang Logo"> </a> <button class="navbar-toggler ml-auto hidden-sm-up float-xs-left" type=button  data-toggle=collapse  data-target="#navbarSupportedContent" aria-controls=navbarSupportedContent  aria-expanded=false  aria-label="Toggle navigation"> <span class=navbar-toggler-icon ></span> </button> <div class="collapse navbar-collapse" id=navbarSupportedContent > <ul class="navbar-nav mx-auto"> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/downloads/">Download</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="https://docs.julialang.org">Documentation</a> <li class="nav-item active flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/blog/">Blog</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/community/">Community</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/learning/">Learn</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/research/">Research</a> <li class="nav-item flex-md-fill text-md-center"> <a class=nav-link  href="/previews/PR1111/jsoc/">JSoC</a> </ul> <span class=navbar-right > <a class=github-button  href="https://github.com/sponsors/julialang" data-icon=octicon-heart  data-size=large  aria-label="Sponsor @julialang on GitHub">Sponsor</a> </span> </div> </nav> </div> <br><br> <div class="container blog-title"> <h1>Tutorial on precompilation <a type="application/rss+xml" href="https://julialang.org/feed.xml"> <i class="fa fa-rss-square rss-icon"></i> </a> </h1> <h3> <span style="font-weight: lighter;"> 26 December 2020 </span> | <span style="font-weight: bold;"></span> <span style="font-weight: bold;">Tim Holy </span> </h3> </div> <a href="https://github.com/JuliaLang/www.julialang.org/blob/master/blog/2020/12/precompile_tutorial.md" title="Edit this page on GitHub" class=edit-float > </a> <div class="container main"><p>One of the main foci of development during Julia 1.6 has been to reduce <em>latency</em>, the delay between starting your session and getting useful work done. Most of this latency is due to <em>code loading</em> and <em>compilation</em>; the latter can be split broadly into <em>type inference</em> and <em>codegen</em>, although the latter itself has many stages.</p> <p>While a lot of work has gone into Julia 1.6 to reduce latency, users and developers naturally will want more. This is the inaugural post in a short series devoted to the topic of what package developers can do to reduce latency. This particular installment is devoted to background material that will hopefully be useful in later installments.</p> <h2 id=methodinstances_type-inference_and_backedges ><a href="#methodinstances_type-inference_and_backedges">MethodInstances, type-inference, and backedges</a></h2> <p>We&#39;ll introduce these concepts via a simple demo &#40;users are encourage to try this and follow along&#41;. First, let&#39;s open the Julia REPL and define the following methods:</p> <pre><code class="julia hljs">double(x::<span class=hljs-built_in >Real</span>) = <span class=hljs-number >2</span>x
+calldouble(container) = double(container[<span class=hljs-number >1</span>])
+calldouble2(container) = calldouble(container)</code></pre> <p><code>calldouble2</code> calls <code>calldouble</code> which calls <code>double</code> on the first element in <code>container</code>. Let&#39;s create a <code>container</code> object and run this code:</p> <pre><code class="julia hljs">julia&gt; c64 = [<span class=hljs-number >1.0</span>]
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>}:
+ <span class=hljs-number >1.0</span>
+
+julia&gt; calldouble2(c64)
+<span class=hljs-number >2.0</span></code></pre> <p>Now, let&#39;s take a brief trip down to understand what Julia&#39;s compiler did when preparing to run that statement. It will be easiest to load the <a href="https://github.com/timholy/MethodAnalysis.jl">MethodAnalysis</a> package:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> MethodAnalysis
+
+julia&gt; mi = methodinstance(double, (<span class=hljs-built_in >Float64</span>,))
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)</code></pre> <p><code>methodinstance</code> is a lot like <code>which</code>, except it asks about <em>type-inferred code</em>. This indicates that <code>double</code> has been inferred for an argument of type <code>Float64</code>. One of the crucial features of type-inference is that it keeps track of dependencies:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> AbstractTrees
+
+julia&gt; print_tree(mi)
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})</code></pre> <p>This indicates that the result for type-inference on <code>calldouble2&#40;::Vector&#123;Float64&#125;&#41;</code> depended on the result for <code>calldouble&#40;::Vector&#123;Float64&#125;&#41;</code>, which in turn depended on <code>double&#40;::Float64&#41;</code>.</p> <p>At this point, these are the only inferred instances of these methods:</p> <pre><code class="julia hljs">julia&gt; methodinstances(double)
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+
+julia&gt; methodinstances(calldouble)
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+
+julia&gt; methodinstances(calldouble2)
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})</code></pre> <p>Let&#39;s change that a bit: let&#39;s create a new container, one with abstract element type, so that Julia&#39;s type-inference cannot accurately predict the type of elements in the container: just for fun, we&#39;ll use a new concrete type too, <code>Float32</code>:</p> <pre><code class="julia hljs">julia&gt; cabs = <span class=hljs-built_in >AbstractFloat</span>[<span class=hljs-number >1.0f0</span>]
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>}:
+ <span class=hljs-number >1.0f0</span>
+
+julia&gt; calldouble2(cabs)
+<span class=hljs-number >2.0f0</span></code></pre> <p>Now let&#39;s look at the available instances:</p> <pre><code class="julia hljs">julia&gt; mis = methodinstances(double)
+<span class=hljs-number >3</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
+
+julia&gt; print_tree(mis[<span class=hljs-number >1</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+
+julia&gt; print_tree(mis[<span class=hljs-number >2</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)
+
+julia&gt; print_tree(mis[<span class=hljs-number >3</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)</code></pre> <p>Why does the first &quot;link to&quot; &#40;more technically, have backedges to&#41; <code>calldouble</code> and <code>calldouble2</code>, but the second two do not? Moreover, why does every instance of <code>calldouble</code> have backedges to <code>calldouble2</code>?</p> <pre><code class="julia hljs">julia&gt; mis = methodinstances(calldouble)
+<span class=hljs-number >2</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>})
+
+julia&gt; print_tree(mis[<span class=hljs-number >1</span>])
+MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+
+julia&gt; print_tree(mis[<span class=hljs-number >2</span>])
+MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>})
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>})</code></pre> <p>The results here reflect the success or failure of concrete type-inference. <code>AbstractFloat</code> is not a concrete type:</p> <pre><code class="julia hljs">julia&gt; isconcretetype(<span class=hljs-built_in >AbstractFloat</span>)
+<span class=hljs-literal >false</span>
+
+julia&gt; isconcretetype(<span class=hljs-built_in >Float32</span>)
+<span class=hljs-literal >true</span></code></pre> <p>It may surprise some readers that <code>Vector&#123;AbstractFloat&#125;</code> is concrete:</p> <pre><code class="julia hljs">julia&gt; isconcretetype(<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>})
+<span class=hljs-literal >true</span>
+
+julia&gt; isconcretetype(<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})
+<span class=hljs-literal >true</span></code></pre> <p>The <em>container</em> is concrete even if the <em>elements</em> are not. &#40;Exercise for the reader: what about <code>AbstractVector&#123;AbstractFloat&#125;</code>? How about <code>AbstractVector&#123;Float32&#125;</code>?&#41;</p> <p>To look more deeply into the implications of concreteness and inference, a useful tool is <code>@code_warntype</code>. You can see difference between <code>c64</code> and <code>cabs</code>, especially if you run this in the REPL yourself where you can see the red highlighting:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@code_warntype</span> calldouble2(c64)
+Variables
+  <span class=hljs-comment >#self#::Core.Const(calldouble2)</span>
+  container::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>}
+
+Body::<span class=hljs-built_in >Float64</span>
+<span class=hljs-number >1</span> ─ %<span class=hljs-number >1</span> = Main.calldouble(container)::<span class=hljs-built_in >Float64</span>
+└──      <span class=hljs-keyword >return</span> %<span class=hljs-number >1</span>
+
+julia&gt; <span class=hljs-meta >@code_warntype</span> calldouble2(cabs)
+Variables
+  <span class=hljs-comment >#self#::Core.Const(calldouble2)</span>
+  container::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>}
+
+Body::<span class=hljs-built_in >Any</span>
+<span class=hljs-number >1</span> ─ %<span class=hljs-number >1</span> = Main.calldouble(container)::<span class=hljs-built_in >Any</span>
+└──      <span class=hljs-keyword >return</span> %<span class=hljs-number >1</span></code></pre> <p>Note that only the return type &#40;<code>::Float64</code> vs <code>::Any</code>&#41; differs between these; this is what accounts for the fact that <code>calldouble</code> has backedges to <code>calldouble2</code> in both cases, because in both cases the specific caller/callee chain can be successfully inferred. The really big differences emerge one level lower:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@code_warntype</span> calldouble(c64)
+Variables
+  <span class=hljs-comment >#self#::Core.Const(calldouble)</span>
+  container::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>}
+
+Body::<span class=hljs-built_in >Float64</span>
+<span class=hljs-number >1</span> ─ %<span class=hljs-number >1</span> = Base.getindex(container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >Float64</span>
+│   %<span class=hljs-number >2</span> = Main.double(%<span class=hljs-number >1</span>)::<span class=hljs-built_in >Float64</span>
+└──      <span class=hljs-keyword >return</span> %<span class=hljs-number >2</span>
+
+julia&gt; <span class=hljs-meta >@code_warntype</span> calldouble(cabs)
+Variables
+  <span class=hljs-comment >#self#::Core.Const(calldouble)</span>
+  container::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>}
+
+Body::<span class=hljs-built_in >Any</span>
+<span class=hljs-number >1</span> ─ %<span class=hljs-number >1</span> = Base.getindex(container, <span class=hljs-number >1</span>)::<span class=hljs-built_in >AbstractFloat</span>
+│   %<span class=hljs-number >2</span> = Main.double(%<span class=hljs-number >1</span>)::<span class=hljs-built_in >Any</span>
+└──      <span class=hljs-keyword >return</span> %<span class=hljs-number >2</span></code></pre> <p>In the first case, <code>getindex</code> was guaranteed to return a <code>Float64</code>, but in the second case it&#39;s only known to be an <code>AbstractFloat</code>. Moreover, type-inference cannot predict a concrete type for the return of <code>double&#40;::AbstractFloat&#41;</code>, though it can for <code>double&#40;::Float64&#41;</code>. Consequently the call with <code>::AbstractFloat</code> is made via <em>runtime dispatch</em>, where execution pauses, Julia asks for the concrete type of the object, and then it makes the appropriate call to <code>double</code> &#40;in this case, to <code>double&#40;::Float32&#41;</code>&#41;.</p> <p>For completeness, what happens if we add another container with concrete eltype?</p> <pre><code class="julia hljs">julia&gt; c32 = [<span class=hljs-number >1.0f0</span>]
+<span class=hljs-number >1</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>}:
+ <span class=hljs-number >1.0</span>
+
+julia&gt; calldouble2(c32)
+<span class=hljs-number >2.0f0</span>
+
+julia&gt; mis = methodinstances(double)
+<span class=hljs-number >3</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
+
+julia&gt; print_tree(mis[<span class=hljs-number >1</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float64</span>})
+
+julia&gt; print_tree(mis[<span class=hljs-number >2</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)
+
+julia&gt; print_tree(mis[<span class=hljs-number >3</span>])
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
+└─ MethodInstance <span class=hljs-keyword >for</span> calldouble(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})
+   └─ MethodInstance <span class=hljs-keyword >for</span> calldouble2(::<span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Float32</span>})</code></pre> <p>So now both concretely-inferred versions of <code>double</code> link all the way back to <code>calldouble2</code>, but only when the element type of the container is also concrete.</p> <h2 id=precompilation ><a href="#precompilation">Precompilation</a></h2> <p>During <em>package precompilation</em>, Julia creates a <code>*.ji</code> file typically stored in <code>.julia/compiled/v1.x/</code>, where <code>1.x</code> is your version of Julia. Your <code>*.ji</code> file might just have definitions of constants, types, and methods, but optionally you can also include the results of type-inference. This happens automatically if you run code while your package is being built, but generally the recommended procedure is to add <em>precompile directives</em>.</p> <p>Let&#39;s turn the example above into a package. In a fresh session,</p> <pre><code class="julia hljs">(<span class=hljs-meta >@v1</span><span class=hljs-number >.6</span>) pkg&gt; generate SnoopCompileDemo
+  Generating  project SnoopCompileDemo:
+    SnoopCompileDemo/Project.toml
+    SnoopCompileDemo/src/SnoopCompileDemo.jl
+
+julia&gt; open(<span class=hljs-string >&quot;SnoopCompileDemo/src/SnoopCompileDemo.jl&quot;</span>, <span class=hljs-string >&quot;w&quot;</span>) <span class=hljs-keyword >do</span> io
+           write(io, <span class=hljs-string >&quot;&quot;&quot;
+           module SnoopCompileDemo
+
+           double(x::Real) = 2x
+           calldouble(container) = double(container[1])
+           calldouble2(container) = calldouble(container)
+
+           precompile(calldouble2, (Vector{Float32},))
+           precompile(calldouble2, (Vector{Float64},))
+           precompile(calldouble2, (Vector{AbstractFloat},))
+
+           end
+           &quot;&quot;&quot;</span>)
+       <span class=hljs-keyword >end</span>
+<span class=hljs-number >282</span></code></pre> <p>You can see we created a package, defined those three methods, and added three <code>precompile</code> directives, all for the top-level <code>calldouble2</code>. We did <em>not</em> add any explicit <code>precompile</code> directives for its callees <code>calldouble</code>, <code>double</code>, or anything needed by <code>double</code> &#40;like <code>*</code> to implement <code>2*x</code>&#41;.</p> <p>Now let&#39;s load this package and see if we have any <code>MethodInstance</code>s:</p> <pre><code class="julia hljs">julia&gt; push!(<span class=hljs-literal >LOAD_PATH</span>, <span class=hljs-string >&quot;SnoopCompileDemo/&quot;</span>)
+<span class=hljs-number >4</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >String</span>}:
+ <span class=hljs-string >&quot;@&quot;</span>
+ <span class=hljs-string >&quot;@v#.#&quot;</span>
+ <span class=hljs-string >&quot;@stdlib&quot;</span>
+ <span class=hljs-string >&quot;SnoopCompileDemo/&quot;</span>
+
+julia&gt; <span class=hljs-keyword >using</span> SnoopCompileDemo
+[ Info: Precompiling SnoopCompileDemo [<span class=hljs-number >44</span>c70eed-<span class=hljs-number >03</span>a3-<span class=hljs-number >46</span>c0-<span class=hljs-number >8383</span>-afc033fb6a27]
+
+julia&gt; <span class=hljs-keyword >using</span> MethodAnalysis
+
+julia&gt; methodinstances(SnoopCompileDemo.double)
+<span class=hljs-number >3</span>-element <span class=hljs-built_in >Vector</span>{Core.MethodInstance}:
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float32</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >Float64</span>)
+ MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)</code></pre> <p>You can also verify that the same backedges get created as when we ran this code interactively above.</p> <p>By &quot;pre-loading&quot; these <code>MethodInstance</code>s into our session, we can save some of the time needed to run type-inference: not much time in this case because the code is so simple, but for more complex methods the savings can be substantial.</p> <p>This code got cached in <code>SnoopCompileDemo.ji</code>. It&#39;s worth noting that even though the <code>precompile</code> directive got issued from this package, it might save <code>MethodInstances</code> for methods defined in other packages. For example, Julia does not come pre-built with the inferred code for <code>::Int * ::Float32</code>: in a fresh session,</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> MethodAnalysis
+
+julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))</code></pre> <p>returns <code>nothing</code> &#40;the <code>MethodInstance</code> doesn&#39;t exist&#41;, whereas if we&#39;ve loaded <code>SnoopCompileDemo</code> then</p> <pre><code class="julia hljs">julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float32</span>))
+MethodInstance <span class=hljs-keyword >for</span> *(::<span class=hljs-built_in >Int64</span>, ::<span class=hljs-built_in >Float32</span>)
+
+julia&gt; mi.def
+*(x::<span class=hljs-built_in >Number</span>, y::<span class=hljs-built_in >Number</span>) <span class=hljs-keyword >in</span> Base at promotion.jl:<span class=hljs-number >322</span></code></pre> <p>So even though the method is defined in <code>Base</code>, because <code>SnoopCompileDemo</code> needed this code it got stashed in <code>SnoopCompileDemo.ji</code>.</p> <p>This is fantastic, but there are <em>significant limitations</em> to this ability to stash <code>MethodInstance</code>s from other modules. Most crucially, <code>*.ji</code> files can only hold code they &quot;own,&quot; either:</p> <ul> <li><p>for a method defined in the package</p> <li><p>through a chain of backedges to methods defined by the package</p> </ul> <p>If we add</p> <pre><code class="julia hljs">precompile(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float16</span>))</code></pre>
+<p>to the definition of <code>SnoopCompileDemo.jl</code>, nothing happens:</p>
+<pre><code class="julia hljs">julia&gt; mi = methodinstance(*, (<span class=hljs-built_in >Int</span>, <span class=hljs-built_in >Float16</span>))
+        <span class=hljs-comment ># nothing</span></code></pre>
+<p>because there is no &quot;chain of ownership&quot; to <code>SnoopCompileDemo</code>. Consequently, we can&#39;t precompile methods defined in other modules in and of themselves; we can only do it if those methods are linked by backedges to this package.</p>
+<h3 id=time_for_a_quiz ><a href="#time_for_a_quiz">Time for a quiz&#33;</a></h3>
+<p>Add a type to <code>SnoopCompileDemo</code>:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >export</span> SCDType
+<span class=hljs-keyword >struct</span> SCDType <span class=hljs-keyword >end</span></code></pre>
+<p>and then a precompile statement for <code>Base.push&#33;</code>:</p>
+<pre><code class="julia hljs">precompile(push!, (<span class=hljs-built_in >Vector</span>{SCDType}, SCDType))</code></pre>
+<p>Now load the package and check whether the corresponding <code>MethodInstance</code> exists. If not, can you think of a way to get that <code>MethodInstance</code> added to the <code>*.ji</code> file? &#40;<em>Answer is at the bottom of this post</em>&#41;</p>
+<h3 id=synonyms_and_gotchas_for_precompile ><a href="#synonyms_and_gotchas_for_precompile">Synonyms and gotchas for <code>precompile</code></a></h3>
+<p><code>precompile</code> can also be passed a complete <code>Tuple</code>-type: <code>precompile&#40;calldouble2, &#40;Vector&#123;AbstractFloat&#125;,&#41;&#41;</code> can alternatively be written</p>
+<pre><code class="julia hljs">precompile(<span class=hljs-built_in >Tuple</span>{typeof(calldouble2), <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >AbstractFloat</span>}})</code></pre>
+<p>This form appears frequently if <code>precompile</code> directives are issued by code that inspects <code>MethodInstance</code>s, because this signature is in the <code>specType</code> field of a <code>MethodInstance</code>:</p>
+<pre><code class="julia hljs">julia&gt; mi = methodinstance(SnoopCompileDemo.double, (<span class=hljs-built_in >AbstractFloat</span>,))
+MethodInstance <span class=hljs-keyword >for</span> double(::<span class=hljs-built_in >AbstractFloat</span>)
+
+julia&gt; mi.specTypes
+<span class=hljs-built_in >Tuple</span>{typeof(SnoopCompileDemo.double), <span class=hljs-built_in >AbstractFloat</span>}</code></pre>
+<p>One thing we also haven&#39;t discussed is that when <code>precompile</code> fails, it does so &quot;almost&quot; silently:</p>
+<pre><code class="julia hljs">julia&gt; methods(double)
+<span class=hljs-comment ># 1 method for generic function &quot;double&quot;:</span>
+[<span class=hljs-number >1</span>] double(x::<span class=hljs-built_in >Real</span>) <span class=hljs-keyword >in</span> SnoopCompileDemo at /tmp/SnoopCompileDemo/src/SnoopCompileDemo.jl:<span class=hljs-number >3</span>
+
+julia&gt; precompile(double, (<span class=hljs-built_in >String</span>,))
+<span class=hljs-literal >false</span></code></pre>
+<p>Even though <code>double</code> can&#39;t be compiled for <code>String</code>, the corresponding <code>precompile</code> doesn&#39;t error, it only returns <code>false</code>.  As a consequence, if you want to monitor the utility of your <code>precompile</code> directives, sometimes it&#39;s useful to preface them with <code>@assert</code> so that you get an error if they &quot;go bad&quot; in some fashion.</p>
+<h2 id=summary ><a href="#summary">Summary</a></h2>
+<p>In this tutorial, we&#39;ve learned about <code>MethodInstance</code>s, backedges, inference, and precompilation. An important take-home message is that <em>precompilation works better when type inference succeeds.</em> For some packages, time invested in improving inferrability can make your <code>precompile</code> directives work better.</p>
+<h3 id=answer_to_quiz ><a href="#answer_to_quiz">Answer to quiz</a></h3>
+<p>Directly precompiling <code>push&#33;&#40;::Vector&#123;SCDType&#125;, ::SCDType&#41;</code> fails, because while your package &quot;owns&quot; <code>SCDType</code>, <em>it does not own the method of <code>push&#33;</code></em>.</p>
+<p>However, if you add a method that calls <code>push&#33;</code> and then precompile it,</p>
+<pre><code class="julia hljs">dopush() = push!(SCDType[], SCDType())
+precompile(dopush, ())</code></pre>
+<p>then the <code>MethodInstance</code> for <code>push&#33;&#40;::Vector&#123;SCDType&#125;, ::SCDType&#41;</code> will be added to the package through the backedge to <code>dopush</code> &#40;which you do own&#41;.</p>
+<p>Generally, it&#39;s not recommended to do this artifically as was done here; in useful cases, this happens organically through the functionality of your package. But, this only works when the call is inferrable.</p>
+
+</div><br><br>
+
+
+    
+    
+        
+
+
+    
+
+    <footer class="container-fluid footer-copy">
+  <div class=container >
+    <div class="row footrow">
+      <ul>
+        <li><a href="/previews/PR1111/project">About</a>
+        <li><a href="/previews/PR1111/about/help">Get Help</a>
+        <li><a href="/previews/PR1111/blog/2019/02/julia-entities/">Governance</a>
+        <li><a href="/previews/PR1111/research/#publications">Publications</a>
+        <li><a href="/previews/PR1111/research/#sponsors">Sponsors</a>
+      </ul>
+      <ul>
+        <li><a href="/previews/PR1111/downloads/">Downloads</a>
+        <li><a href="/previews/PR1111/downloads/">All Releases</a>
+        <li><a href="https://github.com/JuliaLang/julia">Source Code</a>
+        <li><a href="/previews/PR1111/downloads/#current_stable_release">Current Stable Release</a>
+        <li><a href="/previews/PR1111/downloads/#long_term_support_release">Longterm Support Release</a>
+        <li><a href="https://status.julialang.org/">PkgServer Status</a>
+      </ul>
+      <ul>
+        <li><a href="https://docs.julialang.org/en/v1/">Documentation</a>
+        <li><a href="https://juliaacademy.com">JuliaAcademy</a>
+        <li><a href="https://www.youtube.com/user/JuliaLanguage">YouTube</a>
+        <li><a href="/previews/PR1111/learning/getting-started/">Getting Started</a>
+        <li><a href="https://docs.julialang.org/en/v1/manual/faq/">FAQ</a>
+        <li><a href="/previews/PR1111/learning/books">Books</a>
+      </ul>
+      <ul>
+        <li><a href="/previews/PR1111/community/">Community</a>
+        <li><a href="/previews/PR1111/community/standards/">Code of Conduct</a>
+        <li><a href="/previews/PR1111/diversity/">Diversity</a>
+        <li><a href="https://juliacon.org">JuliaCon</a>
+        <li><a href="/previews/PR1111/community/#julia_user_and_developer_survey">User/Developer Survey</a>
+        <li><a href="/previews/PR1111/shop/">Shop Merchandise</a>
+      </ul>
+      <ul>
+        <li><a href="https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md">Contributing</a>
+        <li><a href="https://github.com/JuliaLang/julia/issues">Issue Tracker</a>
+        <li><a href="https://github.com/JuliaLang/julia/security/policy">Report a Security Issue</a>
+        <li><a href="https://github.com/issues?q=is%3Aopen+is%3Aissue+language%3AJulia+label%3A%22help+wanted%22">Help Wanted Issues</a>
+        <li><a href="https://github.com/issues?q=is%3Aopen+is%3Aissue+language%3AJulia+label%3A%22good+first+issue%22+">Good First Issue</a>
+        <li><a href="https://docs.julialang.org/en/v1/devdocs/reflection/">Dev Docs</a>
+      </ul>
+    </div>
+    <div id=footer-bottom  class=row >
+      <div class="col-md-10 py-2">
+        <p>Built with <a href="https://franklinjl.org">Franklin.jl</a> and the <a href="https://julialang.org">Julia Programming Language</a>. We thank <a href="https://www.fastly.com">Fastly</a> for their generous infrastructure support.</p>
+        <p>©2020 JuliaLang.org <a href="https://github.com/JuliaLang/www.julialang.org/graphs/contributors">contributors</a>. The content on this website is made available under the <a href="https://github.com/JuliaLang/www.julialang.org/blob/master/LICENSE.md">MIT license</a>.
+      </div>
+      <div class="col-md-2 py-2">
+        <span class=float-sm-right >
+          <a class=github-button  href="https://github.com/sponsors/julialang" data-icon=octicon-heart  data-size=large  aria-label="Sponsor @julialang on GitHub">Sponsor</a>
+        </span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="/previews/PR1111/libs/jquery/jquery.min.js"></script>
+<script src="/previews/PR1111/libs/bootstrap/bootstrap.min.js"></script>
