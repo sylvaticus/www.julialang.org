@@ -1100,12 +1100,6 @@
     <priority>0.5</priority>
 </url>
 <url>
-    <loc>https://julialang.netlify.app/previews/PR1135/soc/index/</loc>
-    <lastmod>2021-02-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
     <loc>https://julialang.netlify.app/previews/PR1135/index/</loc>
     <lastmod>2021-02-04</lastmod>
     <changefreq>monthly</changefreq>
@@ -1119,12 +1113,6 @@
 </url>
 <url>
     <loc>https://julialang.netlify.app/previews/PR1135/ecosystems/</loc>
-    <lastmod>2021-02-04</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
-    <loc>https://julialang.netlify.app/previews/PR1135/soc/ideas-page/</loc>
     <lastmod>2021-02-04</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
