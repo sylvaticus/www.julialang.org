@@ -90,16 +90,10 @@ Libraries:
 └ &#91; LP64&#93; libopenblas.so</code></pre> <p>Loading <code>MKL</code> instantly switches the configuration over to using <code>MKL</code>, and all BLAS invocations from that point on will be performed by the Intel-written kernels instead. It is possible to create truly complex setups &#40;e.g. layering a library that provides only a few BLAS symbols on top of OpenBLAS which can provide the rest&#41; but for most users the main impact will simply be that it is no longer necessary to recompile Julia when you want to use an alternate BLAS library. Note that Julia&#39;s choice to use ILP64 or LP64 <em>is</em> still a compile-time decision, and that even if you load <code>OpenBLAS32_jll</code> to provide LP64 symbols, Julia will still use ILP64 on 64-bit platforms by default. The main reason to support LP64 on 64-bit platforms at all is to provide the symbols for other programs that may be linked into Julia&#39;s namespace, such as using <a href="https://github.com/JuliaPy/PyCall.jl"><code>PyCall</code></a> to load <code>numpy</code>.</p> <p>For more information you can watch the talk &quot;<a href="https://www.youtube.com/watch?v&#61;t6hptekOR7s">Runtime-switchable BLAS/LAPACK backends via libblastrampoline</a>&quot; from JuliaCon 2021.</p> <h2 id=escaping_newlines_inside_strings ><a href="#escaping_newlines_inside_strings">Escaping newlines inside strings</a></h2> <p><em>Simeon Schaub</em></p> <p>One small but hopefully useful new feature is the ability to break up long lines inside string literals. Whereas strings with long lines such as in error messages had to be split up manually into multiple strings before in order to conform to a maximum line width, the newline can now be escaped by simply preceding it with a backslash inside the string:</p> <pre><code class=language-julia >function foo&#40;x&#41;
     if isbad&#40;x&#41;
         error&#40;&quot;This is a long error message describing exactly why &#96;x&#96; is bad, \
-but that means it exceeds our desired column width.&quot;&quot;&quot;&#41;
+               but that means it exceeds our desired column width.&quot;&#41;
     end
     return bar&#40;x&#41;
-end</code></pre> <p>This works inside triple quotes as well, where it also handles indentation as expected:</p> <pre><code class=language-julia >function foo&#40;x&#41;
-    if isbad&#40;x&#41;
-        error&#40;&quot;&quot;&quot;This is a long error message describing exactly why &#96;x&#96; is bad, \
-            but that means it exceeds our desired column width.&quot;&quot;&quot;&#41;
-    end
-    return bar&#40;x&#41;
-end</code></pre> <p>This feature has also been implemented for command literals, so that the behavior is more consistent with other POSIX-like shells:</p> <pre><code class=language-julia-repl >julia&gt; run&#40;&#96;&#96;&#96;
+end</code></pre> <p>which also works inside triple quotes as you would expect.</p> <p>This feature has also been implemented for command literals, so that the behavior is more consistent with other POSIX-like shells:</p> <pre><code class=language-julia-repl >julia&gt; run&#40;&#96;&#96;&#96;
            echo foo\
            bar&#96;&#96;&#96;&#41;;
 foobar
