@@ -62,12 +62,6 @@
     <priority>0.5</priority>
 </url>
 <url>
-    <loc>https://julialang.netlify.app/previews/PR1419/blog/2021/10/julia-1.7-highlights/index.html</loc>
-    <lastmod>2021-12-01</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
     <loc>https://julialang.netlify.app/previews/PR1419/blog/2017/05/raspberry-pi-julia/index.html</loc>
     <lastmod>2021-12-01</lastmod>
     <changefreq>monthly</changefreq>
