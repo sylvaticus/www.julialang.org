@@ -938,6 +938,12 @@
     <priority>0.5</priority>
 </url>
 <url>
+    <loc>https://julialang.netlify.app/previews/PR1457/blog/2021/12/dtable-performance-assessment/index.html</loc>
+    <lastmod>2021-12-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
     <loc>https://julialang.netlify.app/previews/PR1457/blog/2015/05/juliacon-preview/index.html</loc>
     <lastmod>2021-12-08</lastmod>
     <changefreq>monthly</changefreq>
